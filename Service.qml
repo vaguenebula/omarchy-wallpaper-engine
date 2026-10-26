@@ -3,7 +3,8 @@
 // CLI, add the autostart + theme-set hook, and write the menu > Style row.
 //
 // install.sh is idempotent, so the guard is only there to keep every shell
-// start from re-running it.
+// start from re-running it. It looks for the newest menu line, so updating the
+// plugin re-runs setup once to add it.
 import QtQuick
 import Quickshell.Io
 
@@ -18,7 +19,7 @@ Item {
   Process {
     running: true
     command: ["bash", "-c",
-      'grep -q omarchy-we-menu-start "$HOME/.config/omarchy/extensions/omarchy-menu.jsonc" 2>/dev/null'
+      'grep -q "omarchy-we bg-switcher" "$HOME/.config/omarchy/extensions/omarchy-menu.jsonc" 2>/dev/null'
       + ' || bash ' + JSON.stringify(root.pluginDir + "/install.sh") + ' --no-deps']
     stdout: StdioCollector {
       onStreamFinished: if (text.trim()) console.log("omarchy-we setup:", text.trim())

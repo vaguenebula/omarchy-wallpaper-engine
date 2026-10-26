@@ -8,6 +8,7 @@
 #   omarchy-we list                 List available wallpapers (index / type / title / id)
 #   omarchy-we set <query>          Set a wallpaper by index, workshop id, or title substring
 #   omarchy-we menu                 Pick a wallpaper from a graphical menu
+#   omarchy-we bg-switcher          Omarchy's background switcher, with live wallpapers added
 #   omarchy-we next | prev | random Cycle wallpapers
 #   omarchy-we launch               (Re)launch the saved wallpaper — used by autostart & hooks
 #   omarchy-we current [--json]     Show the current wallpaper (--json for machine output)
@@ -24,6 +25,8 @@ STATE_FILE="$STATE_DIR/current"
 CACHE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/omarchy-we"
 PREVIEW_DIR="$CACHE_DIR/previews"       # symlinks: "<label>.<ext>" -> wallpaper preview
 MAP_FILE="$CACHE_DIR/map.tsv"           # "<label>\t<workshop-id>"
+LIVE_DIR="$CACHE_DIR/live"              # bg-switcher tiles: "<title>.<ext>" -> wallpaper preview
+LIVE_MAP_FILE="$CACHE_DIR/live.tsv"     # "<tile path>\t<workshop-id>"
 TRANSPARENT_BG="$HOME/.config/omarchy/backgrounds/transparent.png"
 SCALING="${OMARCHY_WE_SCALING:-fill}"    # stretch | fit | fill | default
 FPS="${OMARCHY_WE_FPS:-}"                 # optional frame-rate cap
@@ -246,6 +249,39 @@ add_stop_tile() {
   printf '%s\t%s\n' "$STOP_LABEL" "$STOP_SENTINEL" >> "$MAP_FILE"
 }
 
+# Tiles for the background switcher: one per scene/video wallpaper. Web
+# wallpapers and untyped Workshop items (effect presets) are left out, since the
+# renderer can't show them.
+build_live_backgrounds() {
+  mkdir -p "$LIVE_DIR"
+  entries_json | LIVE_DIR="$LIVE_DIR" LIVE_MAP_FILE="$LIVE_MAP_FILE" python3 -c '
+import json, os, sys
+live, mapf = os.environ["LIVE_DIR"], os.environ["LIVE_MAP_FILE"]
+EXTS = {"jpg", "jpeg", "png", "gif", "bmp", "webp"}
+for e in os.scandir(live):
+    if e.is_symlink() or e.is_file():
+        os.remove(e.path)
+used, rows = set(), []
+for w in json.load(sys.stdin):
+    prev = w.get("preview")
+    if w.get("type") not in ("scene", "video") or not prev:
+        continue
+    ext = prev.rsplit(".", 1)[-1].lower()
+    if ext not in EXTS:
+        continue
+    base = " ".join(str(w["title"]).replace("/", "-").split()) or w["id"]
+    label, n = base, 2
+    while label.lower() in used:            # guarantee uniqueness
+        label = f"{base} ({n})"; n += 1
+    used.add(label.lower())
+    link = os.path.join(live, f"{label}.{ext}")
+    os.symlink(prev, link)
+    rows.append(link + "\t" + str(w["id"]) + "\n")
+with open(mapf, "w", encoding="utf-8") as f:
+    f.writelines(rows)
+'
+}
+
 # ---- background handling ---------------------------------------------------
 ensure_transparent_asset() {
   if [[ ! -f "$TRANSPARENT_BG" ]]; then
@@ -336,11 +372,8 @@ cmd_set() {
 
 cmd_launch() {
   local id; id="$(cat "$STATE_FILE" 2>/dev/null || true)"
-  if [[ -z "$id" ]]; then
-    # No saved choice yet: pick the first wallpaper.
-    id="$(catalog | awk -F'\t' 'NR==1{print $1}')"
-    [[ -n "$id" ]] || die "no wallpapers available"
-  fi
+  # No saved choice (never picked, or stopped): leave the static background alone.
+  [[ -n "$id" ]] || return 0
   launch_we "$id"
 }
 
@@ -424,6 +457,42 @@ cmd_menu() {
   cmd_set "${chosen%%  ·  *}"
 }
 
+# Omarchy's background switcher (Super+Ctrl+Space, menu > Style > Background)
+# with every live wallpaper added after the theme's own images. install.sh
+# points the menu's Background entry here.
+cmd_bg_switcher() {
+  command -v omarchy-menu-images >/dev/null 2>&1 || die "omarchy-menu-images not found (needs Omarchy's image selector)"
+  build_live_backgrounds
+
+  local theme_name selected="" pick id
+  theme_name="$(cat "$HOME/.local/state/omarchy/current/theme.name" 2>/dev/null || true)"
+
+  # Highlight what's on screen: the live wallpaper if one is running, else the static image.
+  if pgrep -f "${WE_BIN}[^ ]* .*--screen-root" >/dev/null 2>&1 && [[ -s "$STATE_FILE" ]]; then
+    selected="$(awk -F'\t' -v id="$(cat "$STATE_FILE")" '$2==id{print $1; exit}' "$LIVE_MAP_FILE")"
+  fi
+  [[ -n "$selected" ]] || selected="$(readlink -f "$HOME/.local/state/omarchy/current/background" 2>/dev/null || true)"
+
+  pick="$(omarchy-menu-images --selected "$selected" --show-labels --filterable \
+    "$HOME/.local/state/omarchy/current/theme/backgrounds" \
+    "$HOME/.config/omarchy/backgrounds/$theme_name" \
+    "$LIVE_DIR")"
+  [[ -n "$pick" ]] || exit 0                         # cancelled
+
+  if [[ "$pick" == "$LIVE_DIR"/* ]]; then
+    id="$(awk -F'\t' -v p="$pick" '$1==p{print $2; exit}' "$LIVE_MAP_FILE")"
+    [[ -n "$id" ]] || die "could not map selection '$pick' to a wallpaper"
+    launch_we "$id"
+    notify "Wallpaper: $(title_of "$id")"
+  else
+    # A static pick replaces the live wallpaper: stop the renderer and forget
+    # the choice, so neither the theme-set hook nor login brings it back.
+    stop_we
+    rm -f "$STATE_FILE"
+    omarchy-theme-bg-set "$pick"
+  fi
+}
+
 cmd_current() {
   local id; id="$(cat "$STATE_FILE" 2>/dev/null || true)"
   [[ -n "$id" ]] || { echo "No live wallpaper set."; return 0; }
@@ -435,6 +504,8 @@ cmd_current() {
 
 cmd_stop() {
   stop_we
+  # Forget the choice too, or the theme-set hook and login would relaunch it.
+  rm -f "$STATE_FILE"
   # Restore a normal, opaque Omarchy background from the current theme.
   local bg
   bg="$(find -L "$HOME/.local/state/omarchy/current/theme/backgrounds" -maxdepth 1 -type f \
@@ -472,6 +543,7 @@ case "${1:-}" in
   list)                 shift; [[ "${1:-}" == "--json" ]] && entries_json || cmd_list;;
   set)                  shift; cmd_set "${1:-}";;
   menu)                 cmd_menu;;
+  bg-switcher)          cmd_bg_switcher;;
   omatrix)              cmd_omatrix;;
   next|prev|random)     cmd_cycle "$1";;
   launch)               cmd_launch;;
@@ -479,6 +551,6 @@ case "${1:-}" in
   stop)                 cmd_stop;;
   ipc)                  shift; cmd_ipc "$@";;
   ""|-h|--help|help)
-    sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//';;
+    sed -n '2,17p' "$0" | sed 's/^# \{0,1\}//';;
   *) die "unknown command '$1' (try: omarchy-we help)";;
 esac

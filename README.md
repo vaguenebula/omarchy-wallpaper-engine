@@ -11,6 +11,7 @@ Omarchy draws its wallpaper through the Quickshell shell as a static image. This
 ## Features
 
 - 🎡 **Omatrix** — a semicircular dial picker (spin, click to apply) that lands under **menu → Style**.
+- 🖼️ **Built into Omarchy's background switcher** — live wallpapers show up in **Super + Ctrl + Space** next to your theme's backgrounds, in every theme, with nothing to assign.
 - 🖼️ Live *scene* and *video* wallpapers on the desktop, all monitors.
 - 🔁 Survives theme changes and reboots (auto-restored on login).
 - 🧰 A scriptable `omarchy-we` CLI, plus a stable [IPC surface](#integration-ipc-for-bars--shell-plugins) for other bars/shells.
@@ -56,6 +57,15 @@ Open **menu → Style → Wallpaper Engine** (or run `omarchy-we omatrix`) to la
 
 > Omatrix needs the plugin install to open. On a plain `./install.sh` (or a non-Omarchy shell) `omarchy-we omatrix` falls back to the native grid picker.
 
+### Background switcher
+
+Press **Super + Ctrl + Space** (or **menu → Style → Background**). Your theme's backgrounds come first, then every live wallpaper; type to filter by title.
+
+- Pick a **live** wallpaper → it starts rendering.
+- Pick a **static** image → the live wallpaper stops (no GPU left running underneath) and stays off through theme changes and reboots.
+
+Web wallpapers and Workshop effect presets are left out, since the renderer can't show them. The switcher is `omarchy-we bg-switcher`; uninstalling restores Omarchy's stock one.
+
 Everything is also available from the CLI:
 
 ```bash
@@ -65,12 +75,13 @@ omarchy-we set 2555206224 # …by Steam Workshop id…
 omarchy-we set "goku"     # …or by title substring
 omarchy-we omatrix        # open the Omatrix dial (falls back to the grid picker)
 omarchy-we menu           # native Omarchy grid picker (falls back to walker/fuzzel/wofi/rofi)
+omarchy-we bg-switcher    # Omarchy's background switcher with live wallpapers added
 omarchy-we next / prev / random
 omarchy-we current        # what's set, and whether it's running
 omarchy-we stop           # stop the live wallpaper, restore a normal background
 ```
 
-Your choice is saved to `~/.local/state/omarchy-we/current` and re-applied on every login.
+Your choice is saved to `~/.local/state/omarchy-we/current` and re-applied on every login. `omarchy-we stop` (or picking a static background) clears it, so nothing launches until you pick a live wallpaper again.
 
 ### Keybinding (optional)
 

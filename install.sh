@@ -27,6 +27,13 @@ MENU_EXT="$HOME/.config/omarchy/extensions/omarchy-menu.jsonc"
 # its last tile, so no separate stop row is needed.
 MENU_ENTRY='  "style.wallpaper-engine": {"icon":"󰸉","label":"Wallpaper Engine","keywords":"live animated video scene we steam workshop omatrix dial","when":"test -x \"$(command -v omarchy-we)\"","action":"omarchy-we omatrix"},'
 
+# Point Omarchy's own background switcher (Super+Ctrl+Space, menu > Style >
+# Background) at `omarchy-we bg-switcher`, which adds the live wallpapers to it.
+# icon/label/aliases repeat Omarchy's defaults: the menu fills fields an override
+# leaves out with blanks instead of keeping them, and losing the "background"
+# alias would unbind Super+Ctrl+Space.
+MENU_BG_ENTRY='  "style.background": {"icon":"","label":"Background","aliases":["background","wallpaper"],"action":"omarchy-we bg-switcher"},'
+
 info()  { printf '\033[1;34m::\033[0m %s\n' "$*"; }
 ok()    { printf '\033[1;32m✓\033[0m %s\n'  "$*"; }
 warn()  { printf '\033[1;33m!\033[0m %s\n'  "$*"; }
@@ -95,15 +102,15 @@ fi
 
 # --- 6. menu > Style entry ------------------------------------------------
 # Adds one row to the Omarchy menu that opens the thumbnail picker directly.
-info "Adding 'Wallpaper Engine' to menu > Style"
+info "Adding 'Wallpaper Engine' to menu > Style, live wallpapers to Background"
 mkdir -p "$(dirname "$MENU_EXT")"
 [[ -s "$MENU_EXT" ]] || printf '{\n}\n' > "$MENU_EXT"
 # Drop a previous block so reinstalls don't duplicate the row.
 sed -i '/omarchy-we-menu-start/,/omarchy-we-menu-end/d' "$MENU_EXT"
 # Pass the entry via the environment, not `awk -v`: -v runs C-escape processing
 # and would turn the JSON's \" into a bare ", producing invalid JSONC.
-if MENU_ENTRY="$MENU_ENTRY" awk '
-     /^}/ && !d { print "// omarchy-we-menu-start"; print ENVIRON["MENU_ENTRY"]; print "// omarchy-we-menu-end"; d=1 }
+if MENU_ENTRY="$MENU_ENTRY" MENU_BG_ENTRY="$MENU_BG_ENTRY" awk '
+     /^}/ && !d { print "// omarchy-we-menu-start"; print ENVIRON["MENU_ENTRY"]; print ENVIRON["MENU_BG_ENTRY"]; print "// omarchy-we-menu-end"; d=1 }
      { print }
      END { exit !d }
    ' "$MENU_EXT" > "$MENU_EXT.tmp"; then
@@ -111,13 +118,14 @@ if MENU_ENTRY="$MENU_ENTRY" awk '
   ok "menu entry added → $MENU_EXT"
 else
   rm -f "$MENU_EXT.tmp"
-  warn "Could not find the closing '}' in $MENU_EXT — add this line yourself:"
-  printf '%s\n' "$MENU_ENTRY"
+  warn "Could not find the closing '}' in $MENU_EXT — add these lines yourself:"
+  printf '%s\n' "$MENU_ENTRY" "$MENU_BG_ENTRY"
 fi
 
 echo
 ok "Done. Pick a wallpaper with:"
-echo "     menu > Style > Wallpaper Engine    # thumbnail picker"
+echo "     menu > Style > Wallpaper Engine    # Omatrix dial"
+echo "     Super+Ctrl+Space       # background switcher, live wallpapers included"
 echo "     omarchy-we list        # see what you have"
 echo "     omarchy-we set <n>     # set by number, id, or title"
 echo "     omarchy-we menu        # same picker, from a terminal"
